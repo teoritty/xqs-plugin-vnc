@@ -56,16 +56,37 @@ func WriteVersion(w io.Writer, v Version) error {
 	return nil
 }
 
+// RequireSupportedVersion enforces the fail-fast floor from the design
+// plan (§1, §7): any version strictly below RFB 3.8 must be rejected, even
+// though it parses to a well-formed Version. This is a defense against a
+// malformed or hostile peer at the untrusted border, not merely a shape
+// check — a real noVNC client or real VNC server always sends 3.8.
+func RequireSupportedVersion(v Version) error {
+	if v.Less(V38) {
+		return &ErrUnsupportedVersion{Raw: v.String(), Reason: "version below RFB 3.8 minimum"}
+	}
+	return nil
+}
+
 // ReadVersion reads exactly one RFB version line ("RFB 0XX.0YY\n", 12
-// bytes) from r and parses it. A short read is reported as a typed
-// truncation error rather than a raw io error, so callers can distinguish
-// a clean early close from malformed data.
+// bytes) from r, parses it, and enforces the >=3.8 floor. A short read is
+// reported as a typed truncation error rather than a raw io error, so
+// callers can distinguish a clean early close from malformed data. A
+// well-formed but sub-3.8 version is reported via *ErrUnsupportedVersion
+// (see RequireSupportedVersion) rather than returned successfully.
 func ReadVersion(r io.Reader) (Version, error) {
 	buf := make([]byte, versionLineLen)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return Version{}, wrapTruncated("version line", err)
 	}
-	return ParseVersion(buf)
+	v, err := ParseVersion(buf)
+	if err != nil {
+		return Version{}, err
+	}
+	if err := RequireSupportedVersion(v); err != nil {
+		return Version{}, err
+	}
+	return v, nil
 }
 
 // ParseVersion parses a raw 12-byte RFB version line.
@@ -110,5 +131,12 @@ func ReadVersionLine(r *bufio.Reader) (Version, error) {
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return Version{}, wrapTruncated("version line", err)
 	}
-	return ParseVersion(buf)
+	v, err := ParseVersion(buf)
+	if err != nil {
+		return Version{}, err
+	}
+	if err := RequireSupportedVersion(v); err != nil {
+		return Version{}, err
+	}
+	return v, nil
 }

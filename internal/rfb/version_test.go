@@ -1,6 +1,7 @@
 package rfb
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"io"
@@ -96,6 +97,86 @@ func TestReadWriteVersion(t *testing.T) {
 	}
 	if got != V38 {
 		t.Errorf("got %+v, want %+v", got, V38)
+	}
+}
+
+func TestRequireSupportedVersion(t *testing.T) {
+	rejected := []Version{{3, 3}, {3, 7}}
+	for _, v := range rejected {
+		err := RequireSupportedVersion(v)
+		if err == nil {
+			t.Errorf("RequireSupportedVersion(%+v) expected error, got nil", v)
+			continue
+		}
+		var verr *ErrUnsupportedVersion
+		if !errors.As(err, &verr) {
+			t.Errorf("RequireSupportedVersion(%+v) error type = %T, want *ErrUnsupportedVersion", v, err)
+		}
+	}
+
+	accepted := []Version{{3, 8}, {3, 9}, {4, 0}}
+	for _, v := range accepted {
+		if err := RequireSupportedVersion(v); err != nil {
+			t.Errorf("RequireSupportedVersion(%+v) expected nil, got %v", v, err)
+		}
+	}
+}
+
+func TestReadVersionRejectsSubMinimum(t *testing.T) {
+	cases := []Version{{3, 3}, {3, 7}}
+	for _, v := range cases {
+		var buf bytes.Buffer
+		if err := WriteVersion(&buf, v); err != nil {
+			t.Fatalf("WriteVersion: %v", err)
+		}
+		_, err := ReadVersion(&buf)
+		if err == nil {
+			t.Fatalf("ReadVersion(%+v) expected error, got nil", v)
+		}
+		var verr *ErrUnsupportedVersion
+		if !errors.As(err, &verr) {
+			t.Fatalf("ReadVersion(%+v) error type = %T, want *ErrUnsupportedVersion", v, err)
+		}
+	}
+}
+
+func TestReadVersionLineRejectsSubMinimum(t *testing.T) {
+	v := Version{3, 3}
+	var buf bytes.Buffer
+	if err := WriteVersion(&buf, v); err != nil {
+		t.Fatalf("WriteVersion: %v", err)
+	}
+	_, err := ReadVersionLine(bufio.NewReader(&buf))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var verr *ErrUnsupportedVersion
+	if !errors.As(err, &verr) {
+		t.Fatalf("error type = %T, want *ErrUnsupportedVersion", err)
+	}
+}
+
+func TestReadVersionMalformedContent(t *testing.T) {
+	r := bytes.NewReader([]byte("XYZ 003.008\n"))
+	_, err := ReadVersion(r)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var verr *ErrUnsupportedVersion
+	if !errors.As(err, &verr) {
+		t.Fatalf("error type = %T, want *ErrUnsupportedVersion", err)
+	}
+}
+
+func TestReadVersionLineMalformedContent(t *testing.T) {
+	r := bufio.NewReader(bytes.NewReader([]byte("XYZ 003.008\n")))
+	_, err := ReadVersionLine(r)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var verr *ErrUnsupportedVersion
+	if !errors.As(err, &verr) {
+		t.Fatalf("error type = %T, want *ErrUnsupportedVersion", err)
 	}
 }
 

@@ -28,3 +28,27 @@ Table-driven tests cover: version format/parse round-trip and the strict 3.8-vs-
 ## Status
 
 DONE
+
+## Fix: version floor enforcement
+
+**Finding (Critical):** `ParseVersion`/`ReadVersion` only validated wire-format shape and would successfully return a nil-error `Version{3,7}` etc. Nothing in the package enforced the design plan's (§1, §7) fail-fast requirement that any version below RFB 3.8 be rejected, even though `Version.Less`/`AtLeast` existed and were tested in isolation.
+
+**Change:**
+- Added `RequireSupportedVersion(v Version) error` in `internal/rfb/version.go`: returns `*ErrUnsupportedVersion{Raw: v.String(), Reason: "version below RFB 3.8 minimum"}` when `v.Less(V38)`, else nil. Reuses the existing `ErrUnsupportedVersion` type from `errors.go` — no new error type.
+- Wired it into `ReadVersion` and `ReadVersionLine` (the package's two "read a peer's version off the wire" entry points): both now call `ParseVersion` and then `RequireSupportedVersion` before returning, so a caller cannot get a "successfully parsed" sub-3.8 version with a nil error from either read path. `ParseVersion` itself stays pure/shape-only, consistent with the parse-vs-business-rule separation already used elsewhere in the package (e.g. `ReadSecurityTypeList` parses shape only; `SelectSecurityType` is the separate business-rule step that can reject via `ErrNoSupportedSecurityType`). Read-path callers get validation for free since version enforcement is not deferred to a separate optional call the way security-type selection is.
+
+**Tests added** (`internal/rfb/version_test.go`):
+- `TestRequireSupportedVersion` — rejects `{3,3}`/`{3,7}` as `*ErrUnsupportedVersion` (via `errors.As`), accepts `{3,8}`/`{3,9}`/`{4,0}`.
+- `TestReadVersionRejectsSubMinimum` / `TestReadVersionLineRejectsSubMinimum` — round-trip a written sub-3.8 version through `ReadVersion`/`ReadVersionLine` and confirm both surface `*ErrUnsupportedVersion`.
+- `TestReadVersionMalformedContent` / `TestReadVersionLineMalformedContent` — added to cover the newly-introduced `ParseVersion` error-passthrough branch in both read paths (needed to keep coverage from regressing after the new code paths were added).
+
+No other files in the repo call `rfb.ReadVersion`/`rfb.ParseVersion`/`rfb.ReadVersionLine` yet, so no call-site updates were needed.
+
+**Test results:**
+```
+go build ./...                          -> ok
+go test ./internal/rfb/... -cover       -> ok, all tests pass, coverage: 97.9% of statements
+                                            (prior: 97.7%, bar: >= prior)
+```
+
+**Status:** DONE
