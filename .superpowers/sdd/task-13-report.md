@@ -55,4 +55,77 @@ go test ./... -race -cover:
   internal/session     74.4%   (up from before this task)
   internal/transport   83.5%
 ```
+
+## Post-final-review fix: router registration gap
+
+The final whole-branch review flagged an Important finding on top of this
+task's work: the gate machinery built here (`internal/session/backpressure.go`,
+`internal/relay/pump.go`'s gate-polling read loop) was fully implemented and
+covered by unit tests, but **unreachable in the real running process**.
+
+**What was wrong.** `cmd/xqs-vnc/wiring.go`'s `sessionMethods` map — the
+lookup table `router.routeNotification`/`routeRequest` consult to decide
+whether a method belongs to `session.Handler` — listed only `session.connect`,
+`session.disconnect`, `session.embedViewport`, `session.embedActivity`.
+`session.MethodSessionTunnelBackpressure` and `session.MethodSessionTunnelResume`
+(`internal/session/lifecycle.go` lines 34-35) were never added to that map.
+Since `routeNotification`'s default case silently drops any method not
+present in `sessionMethods` (by design, matching "a notification has no
+error channel back to the host"), a real `session.tunnelBackpressure`/
+`session.tunnelResume` notification arriving from the host over the wire
+was dropped before ever reaching `session.Handler.HandleRPC`, so
+`handleTunnelBackpressure`/`handleTunnelResume` never ran and the relay's
+gate could never actually be armed or cleared in production. The existing
+unit test (`internal/session/session_test.go` ~line 400) called
+`handleTunnelBackpressure`/`handleTunnelResume` directly, bypassing the
+router entirely, which is why this gap stayed green through the original
+task and the first review pass.
+
+**The fix.** Added both method constants to `sessionMethods` in
+`cmd/xqs-vnc/wiring.go`:
+
+```go
+var sessionMethods = map[string]bool{
+	session.MethodSessionConnect:            true,
+	session.MethodSessionDisconnect:         true,
+	session.MethodSessionEmbedViewport:      true,
+	session.MethodSessionEmbedActivity:      true,
+	session.MethodSessionTunnelBackpressure: true,
+	session.MethodSessionTunnelResume:       true,
+}
+```
+
+**New regression test.** `cmd/xqs-vnc/backpressure_router_test.go`'s
+`TestRouter_TunnelBackpressureAndResumeReachSession` drives the real
+process end to end (`run()`, the real router, the real `session.Handler`,
+the real `relay.Pump`) — same harness as
+`TestFullProcess_InitializeActivateConnectReachesReady` in
+`integration_test.go` (extended with `fakeHostProcess.tcpStream`/
+`embedStream` tracking and a `notify()` helper for sending framed
+notifications, since `call()` only does request/response). It sends a
+framed `session.tunnelBackpressure` notification from the fake host
+immediately after `session.connect` is accepted (before the relay pump
+goroutine can possibly start, so there's no race against an in-flight
+blocking `Read`), then writes bytes as the fake VNC server and asserts
+they do **not** reach the fake browser side within 300ms — proving the
+notification reached the session's gate through `routeNotification`, not
+by calling the handler directly. It then sends `session.tunnelResume` and
+asserts the same bytes flow through within 5s, proving the resume also
+reaches the gate via the router.
+
+**Confirmed the test actually catches the bug**: reverted the one-line
+`wiring.go` fix (dropped the two new map entries back out), reran only
+this test — it failed as expected:
+```
+backpressure_router_test.go:143: browser side received bytes while
+backpressured; router did not deliver session.tunnelBackpressure to the
+session gate
+```
+Reapplied the fix; the test passes again.
+
+**Full-repo verification after the fix** (`go build ./...` then
+`go test ./... -race -cover`): all packages pass, no regressions —
+`cmd/xqs-vnc` 72.9%, `cmd/xqs-vnc-pack` 52.2%, `internal/ipc` 88.0%,
+`internal/lifecycle` 82.9%, `internal/relay` 79.6%, `internal/rfb` 92.6%,
+`internal/session` 74.4%, `internal/transport` 83.5%.
 All packages pass, no coverage regressions.

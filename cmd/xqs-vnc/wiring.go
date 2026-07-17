@@ -123,10 +123,12 @@ var lifecycleMethods = map[string]bool{
 }
 
 var sessionMethods = map[string]bool{
-	session.MethodSessionConnect:       true,
-	session.MethodSessionDisconnect:    true,
-	session.MethodSessionEmbedViewport: true,
-	session.MethodSessionEmbedActivity: true,
+	session.MethodSessionConnect:            true,
+	session.MethodSessionDisconnect:         true,
+	session.MethodSessionEmbedViewport:      true,
+	session.MethodSessionEmbedActivity:      true,
+	session.MethodSessionTunnelBackpressure: true,
+	session.MethodSessionTunnelResume:       true,
 }
 
 // HandleRPC implements ipc.RPCHandler.

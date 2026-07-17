@@ -149,6 +149,15 @@ type fakeHostProcess struct {
 	nextChID uint32
 
 	stateUpdates chan stateUpdate
+
+	// tcpStream/embedStream hold the two channel-bus streams the fake
+	// host opened for a session.connect's tcp-relay and embed-stream
+	// purposes, respectively. Populated by handleChannelOpen so tests
+	// that need to exercise post-handshake application-data flow (e.g.
+	// the tunnelBackpressure/tunnelResume router regression test) can
+	// reach them without re-deriving channel IDs.
+	tcpStream   *chanStream
+	embedStream *chanStream
 }
 
 func newFakeHostProcess(t *testing.T, from io.Reader, to io.Writer) *fakeHostProcess {
@@ -269,18 +278,45 @@ func (h *fakeHostProcess) handleChannelOpen(req *ipc.Request) {
 
 	switch p.Purpose {
 	case "tcp-relay":
+		h.mu.Lock()
+		h.tcpStream = stream
+		h.mu.Unlock()
 		go func() {
 			if err := runFakeVNCServer(stream); err != nil {
 				h.t.Logf("fake VNC server handshake: %v", err)
 			}
 		}()
 	case "embed-stream":
+		h.mu.Lock()
+		h.embedStream = stream
+		h.mu.Unlock()
 		go func() {
 			if err := runFakeBrowser(stream); err != nil {
 				h.t.Logf("fake browser handshake: %v", err)
 			}
 		}()
 	}
+}
+
+// notify sends a host -> plugin JSON-RPC notification (no response
+// expected), used for session.tunnelBackpressure/session.tunnelResume in
+// the router regression test — those are notifications, not requests, so
+// they can't go through call().
+func (h *fakeHostProcess) notify(t *testing.T, method string, params any) {
+	t.Helper()
+	var paramsRaw json.RawMessage
+	if params != nil {
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("notify: marshal params: %v", err)
+		}
+		paramsRaw = raw
+	}
+	payload, err := ipc.EncodeNotification(ipc.Notification{Method: method, Params: paramsRaw})
+	if err != nil {
+		t.Fatalf("notify: encode: %v", err)
+	}
+	h.write(payload)
 }
 
 func (h *fakeHostProcess) respond(id any, result any) {
