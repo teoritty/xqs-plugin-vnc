@@ -12,6 +12,8 @@
 // with fake numbers — no real socket, channel, or goroutine required.
 package relay
 
+import "xqs-plugin-vnc/internal/transport"
+
 // CouplingPolicy computes how much tcp-relay credit to grant back to the
 // host (i.e. how much further reading from the real VNC TCP socket to
 // allow) based on how much outbound send-credit currently remains on the
@@ -29,7 +31,7 @@ type CouplingPolicy struct {
 
 // DefaultCouplingPolicy is the policy pump.go uses in production, sized
 // to embed-stream's real credit window.
-var DefaultCouplingPolicy = CouplingPolicy{Capacity: 8}
+var DefaultCouplingPolicy = CouplingPolicy{Capacity: transport.EmbedStreamInitialCredit}
 
 // Grant decides how much of the requested tcp-relay credit grant to
 // actually issue, given how much embed-stream send-credit currently
