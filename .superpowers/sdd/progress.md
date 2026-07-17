@@ -16,3 +16,4 @@ Task 6: complete (commit 81528aa, review confirmed ClientInit-boundary invariant
 Phase 2 (pure RFB protocol) complete: internal/rfb at 92.6% coverage, stdlib-only.
 Task 7: complete (commit d483c90, review approved; noted for Task 8: FrameSink/Source error vocabulary needs extension for credit-aware backpressure)
 Task 8: complete (commit 0325ad2, review verified critical numbers 4/8 frames, 1MiB/64KiB against docs+F-8, approved)
+Task 9: complete (commit 4648652, DONE_WITH_CONCERNS -> review resolved both flagged deviations as non-issues (implementer was right, brief was imprecise), approved)
