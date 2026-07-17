@@ -18,3 +18,5 @@ Task 7: complete (commit d483c90, review approved; noted for Task 8: FrameSink/S
 Task 8: complete (commit 0325ad2, review verified critical numbers 4/8 frames, 1MiB/64KiB against docs+F-8, approved)
 Task 9: complete (commit 4648652, DONE_WITH_CONCERNS -> review resolved both flagged deviations as non-issues (implementer was right, brief was imprecise), approved)
 Task 10: complete (commits 4648652..44b74c6, review found BLOCKING: real ClientInit byte not raw-relayed before message parsing, test dodged it; fixed in 44b74c6, re-review approved)
+Task 11: complete (commit cd2ab74, interrupted mid-session then resumed; review approved - full end-to-end integration test proves the whole plugin process works: initialize/activate/connect -> real RFB handshake+frontshake over real channel-bus frames -> ready)
+Phase 3 (transport/relay/embed, the previously-blocked phase) complete and integration-tested end-to-end.
