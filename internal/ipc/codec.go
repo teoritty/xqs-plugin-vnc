@@ -136,6 +136,16 @@ func NewEncoder(w io.Writer) *Encoder {
 // a malformed frame on the wire — we hold ourselves to the same strict
 // contract we require of the host, since sending a violation would get
 // our own process killed just as surely as accepting one.
+//
+// The header and payload are written via a single underlying Write call
+// (not two), deliberately: the composition root (cmd/xqs-vnc) has
+// multiple independent goroutines that each end up calling Encode on a
+// shared stdout-backed Encoder (the main dispatch loop's synchronous RPC
+// responses, the outbound RPC client, and the relay pump's credit
+// channels) — a single Write call per frame lets a simple mutex-guarded
+// io.Writer make those concurrent Encode callers safe, since two Write
+// calls per frame would let a second frame's header land between this
+// frame's own header and payload writes.
 func (e *Encoder) Encode(kind Kind, channelID uint32, payload []byte) error {
 	if isReservedOrUnknownKind(kind) {
 		return &ProtocolViolationError{Reason: "reserved or unknown kind", Kind: kind}
@@ -144,18 +154,14 @@ func (e *Encoder) Encode(kind Kind, channelID uint32, payload []byte) error {
 		return &ProtocolViolationError{Reason: "oversize length", Length: uint32(len(payload))}
 	}
 
-	hdr := make([]byte, headerLen)
-	putUint32(hdr[0:4], uint32(len(payload)))
-	hdr[4] = byte(kind)
-	putUint32(hdr[5:9], channelID)
+	buf := make([]byte, headerLen+len(payload))
+	putUint32(buf[0:4], uint32(len(payload)))
+	buf[4] = byte(kind)
+	putUint32(buf[5:9], channelID)
+	copy(buf[headerLen:], payload)
 
-	if _, err := e.w.Write(hdr); err != nil {
-		return fmt.Errorf("ipc: write frame header: %w", err)
-	}
-	if len(payload) > 0 {
-		if _, err := e.w.Write(payload); err != nil {
-			return fmt.Errorf("ipc: write frame payload: %w", err)
-		}
+	if _, err := e.w.Write(buf); err != nil {
+		return fmt.Errorf("ipc: write frame: %w", err)
 	}
 	return nil
 }

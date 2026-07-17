@@ -1,10 +1,12 @@
 // Command xqs-vnc is the plugin process entry point. This file is the
 // composition root only: it wires os.Stdin/os.Stdout through the frame
-// codec, builds a Dispatcher routing channelId 0 to the lifecycle
-// handler, and runs the blocking read loop until stdin closes or a
-// protocol violation occurs. Real logic lives in internal/lifecycle and
-// internal/ipc; see docs/superpowers/specs/2026-07-16-vnc-plugin-design.md
-// §2 ("main.go: Композиционный корень. Только проводка. ≤80 строк.").
+// codec, builds a Dispatcher routing channelId 0 to the control-plane
+// router (see wiring.go) and non-zero channelIds to the channel-bus
+// Registry, and runs the blocking read loop until stdin closes or a
+// protocol violation occurs. Real construction logic lives in
+// wiring.go, kept out of this file to hold to
+// docs/superpowers/specs/2026-07-16-vnc-plugin-design.md §2's
+// "main.go: Композиционный корень. Только проводка."
 package main
 
 import (
@@ -15,7 +17,6 @@ import (
 	"os"
 
 	"xqs-plugin-vnc/internal/ipc"
-	"xqs-plugin-vnc/internal/lifecycle"
 )
 
 func main() {
@@ -24,9 +25,11 @@ func main() {
 
 func run(stdin io.Reader, stdout, stderr io.Writer) int {
 	dec := ipc.NewDecoder(stdin)
-	enc := ipc.NewEncoder(stdout)
-	h := lifecycle.NewHandler(enc)
-	disp := ipc.NewDispatcher(h, nil)
+	enc := ipc.NewEncoder(newSyncWriter(stdout))
+
+	p := buildPlugin(enc)
+	r := newRouter(p, enc)
+	disp := ipc.NewDispatcher(r, p.registry)
 	ctx := context.Background()
 
 	for {
@@ -45,7 +48,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 
 		select {
-		case <-h.ShutdownRequested():
+		case <-p.lifecycleHandler.ShutdownRequested():
 			return 0
 		default:
 		}
