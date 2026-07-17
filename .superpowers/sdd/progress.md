@@ -23,3 +23,5 @@ Phase 3 (transport/relay/embed, the previously-blocked phase) complete and integ
 Task 12: complete (commit 1d0e3d1, noVNC 1.7.0 vendored, API calls verified against real vendored source, F-7 resolved with fair doc evidence + defensive fallback, approved)
 Task 13: complete (commit 812bd4d, audit found 1 real gap: tunnelBackpressure/tunnelResume never wired, fixed with gate mechanism, spot-check review approved)
 Phase 5 (edge cases and resilience) complete.
+Task 14: complete (commits b4dbdb3, 6c6203b, review approved w/ minor test-coverage follow-up, follow-up applied: automated tests added 0%->52.2%)
+Phase 6 (packaging) complete. All 14 tasks done. Full repo green: go build ./... and go test ./... -race clean across 8 packages.
