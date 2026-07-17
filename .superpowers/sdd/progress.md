@@ -14,3 +14,4 @@ Task 4: complete (commits 3b8e265..5955bf4, review found Critical: missing versi
 Task 5: complete (commit 780ee9e, review independently re-derived DES vector via OpenSSL, approved)
 Task 6: complete (commit 81528aa, review confirmed ClientInit-boundary invariant holds with byte-level proof, approved w/ minor typed-error nit)
 Phase 2 (pure RFB protocol) complete: internal/rfb at 92.6% coverage, stdlib-only.
+Task 7: complete (commit d483c90, review approved; noted for Task 8: FrameSink/Source error vocabulary needs extension for credit-aware backpressure)
