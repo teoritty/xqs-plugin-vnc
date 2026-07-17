@@ -20,3 +20,4 @@ Task 9: complete (commit 4648652, DONE_WITH_CONCERNS -> review resolved both fla
 Task 10: complete (commits 4648652..44b74c6, review found BLOCKING: real ClientInit byte not raw-relayed before message parsing, test dodged it; fixed in 44b74c6, re-review approved)
 Task 11: complete (commit cd2ab74, interrupted mid-session then resumed; review approved - full end-to-end integration test proves the whole plugin process works: initialize/activate/connect -> real RFB handshake+frontshake over real channel-bus frames -> ready)
 Phase 3 (transport/relay/embed, the previously-blocked phase) complete and integration-tested end-to-end.
+Task 12: complete (commit 1d0e3d1, noVNC 1.7.0 vendored, API calls verified against real vendored source, F-7 resolved with fair doc evidence + defensive fallback, approved)
