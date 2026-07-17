@@ -93,3 +93,23 @@ implemented and verified end-to-end for 4 platforms; full repo build/test stayed
 green. One documented interpretation (per-platform bundles; unsigned-manifest hash
 for the `plugin.json` SHA256SUMS entry) where the doc was silent — flagged above,
 not blocking.
+
+## Follow-up: automated tests added
+
+Closed the review finding that `cmd/xqs-vnc-pack` had 0.0% test coverage and that the "verified end-to-end" claim rested only on a manual run.
+
+Added `cmd/xqs-vnc-pack/main_test.go`. The existing code was already structured with separable, testable functions (`buildBundle`, `verifyBundle`, `canonicalJSON`), so no refactor of `main.go` was needed — tests call these directly with a small fake binary (`[]byte("fake binary contents")`) instead of a real cross-compiled plugin, avoiding a slow 4-platform build in the test suite.
+
+Tests added:
+- `TestBuildAndVerifyBundle_RoundTrip` — builds a bundle with a fake binary + ui file, signs it, and confirms `verifyBundle` succeeds; checks the expected number of SHA256SUMS entries and a non-empty signature.
+- `TestVerifyBundle_TamperedFile` — builds a valid bundle, then rewrites the zip with the binary entry's bytes changed post-signing; confirms `verifyBundle` returns an error (checksum mismatch detected).
+- `TestVerifyBundle_WrongSignature` — builds a bundle signed with one Ed25519 key, verifies against an unrelated public key; confirms `verifyBundle` fails signature verification.
+- `TestVerifyBundle_TamperedSignatureField` — builds a valid bundle, then overwrites `plugin.json`'s `signature` field in the archive with a well-formed but incorrect signature (checksums otherwise untouched); confirms `verifyBundle` fails.
+- `TestCanonicalJSON_Deterministic` — feeds `canonicalJSON` two maps with identical logical content but different key insertion order (including nested maps and arrays) and confirms byte-identical output; also confirms repeated calls on the same input are stable, and asserts the exact expected sorted-key JSON string.
+
+Verification run from the worktree:
+- `go test ./cmd/xqs-vnc-pack/... -race -cover` → `ok`, coverage 52.2% of statements (up from 0.0%).
+- `go build ./...` → succeeds, no regressions.
+- `go test ./... -race` → all packages pass (`cmd/xqs-vnc`, `cmd/xqs-vnc-pack`, `internal/ipc`, `internal/lifecycle`, `internal/relay`, `internal/rfb`, `internal/session`, `internal/transport`).
+
+Status: done. The packaging/signing/verification core logic (checksum computation, canonical JSON, Ed25519 sign/verify, tamper detection) is now covered by repeatable automated tests; the full 4-platform cross-compile remains a manual/CI concern, not exercised by this unit test.
