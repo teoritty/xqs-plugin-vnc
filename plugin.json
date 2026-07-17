@@ -1,0 +1,75 @@
+{
+  "id": "com.xquakshell.vnc",
+  "name": "VNC",
+  "version": "0.1.0",
+  "description": "VNC session client (embed viewer) for xQuakShell.",
+  "engine": {
+    "type": "go-binary",
+    "entry": "xqs-vnc.exe"
+  },
+  "isolation": "per-session",
+  "activationEvents": ["onProtocol:vnc"],
+  "requires": {
+    "pluginApi": "1.0.0"
+  },
+  "capabilities": {
+    "session": {
+      "connectProtocols": ["vnc"],
+      "embed": true,
+      "terminal": false
+    },
+    "network": {
+      "outbound": [],
+      "allowArbitraryOutbound": true,
+      "allowPrivateNetworks": true
+    },
+    "channel": {
+      "purposes": ["embed-stream", "tcp-relay"],
+      "maxConcurrent": 2
+    }
+  },
+  "contributions": {
+    "connectionProtocols": [
+      {
+        "id": "vnc",
+        "label": "VNC",
+        "defaultPort": 5900,
+        "icon": "monitor",
+        "embedEntry": "ui/vnc.html",
+        "fields": [
+          {
+            "id": "auth",
+            "label": "Authentication",
+            "order": 1,
+            "fields": [
+              {
+                "id": "password",
+                "label": "Password",
+                "type": "password",
+                "width": "full",
+                "order": 1,
+                "secret": true
+              }
+            ]
+          },
+          {
+            "id": "options",
+            "label": "Options",
+            "order": 2,
+            "fields": [
+              {
+                "id": "readOnly",
+                "label": "Read only",
+                "type": "checkbox",
+                "default": "false",
+                "width": "full",
+                "order": 1,
+                "secret": false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
