@@ -52,6 +52,22 @@ import (
 // read-granularity/latency tuning knob, not a correctness requirement).
 const serverToBrowserBufSize = 32 * 1024
 
+// BackpressureGate is the extension point through which a host-originated
+// session.tunnelBackpressure/session.tunnelResume signal (docs/plugin-api.md;
+// design doc §7's edge-case row "tunnelBackpressure: Прекратить читать из
+// VNC-сервера. При tunnelResume — возобновить.") reaches the
+// server->browser pump's read loop. *session.Session implements this (see
+// internal/session/backpressure.go); it is expressed as an interface here,
+// not a *session.Session parameter, so pumpServerToBrowser/runPump stay
+// testable against fakes with no session package dependency, matching this
+// file's existing decoupling rationale.
+type BackpressureGate interface {
+	// WaitForReadClearance blocks while backpressured, returning true once
+	// clear to read again, or false immediately if stop fires first
+	// (channel torn down) without ever having to observe a resume.
+	WaitForReadClearance(stop <-chan struct{}) bool
+}
+
 // Pump is a session.RelayStarter that wires a session's already-open
 // tcp-relay and embed-stream channels into a real, authenticated,
 // bidirectional RFB relay. The zero value is ready to use; Policy
@@ -65,6 +81,7 @@ type Pump struct {
 }
 
 var _ session.RelayStarter = Pump{}
+var _ BackpressureGate = (*session.Session)(nil)
 
 // StartRelay implements session.RelayStarter. It delegates the actual
 // handshake + pump work to Run (kept free of *session.Session so it is
@@ -84,7 +101,7 @@ func (p Pump) StartRelay(ctx context.Context, s *session.Session, tcpChannel, em
 	}
 
 	go func() {
-		err := runPump(tcpChannel, embedChannel, readOnly, policy)
+		err := runPump(tcpChannel, embedChannel, readOnly, policy, s)
 		s.ReportRelayEnded(context.Background(), err)
 	}()
 
@@ -116,13 +133,21 @@ func doHandshakes(tcpChannel, embedChannel *transport.Channel, password []byte) 
 // any *session.Session dependency specifically so it is testable against
 // fake transport.Channel pairs without constructing a Session.
 func Run(tcpCh, embedCh *transport.Channel, readOnly bool, policy CouplingPolicy) error {
-	return runPump(tcpCh, embedCh, readOnly, policy)
+	return runPump(tcpCh, embedCh, readOnly, policy, nil)
 }
 
-func runPump(tcpCh, embedCh *transport.Channel, readOnly bool, policy CouplingPolicy) error {
+// RunWithGate is Run plus a BackpressureGate: gate.WaitForReadClearance is
+// consulted before every read from tcpCh in the server->browser direction,
+// pausing that direction while the host has signaled
+// session.tunnelBackpressure. A nil gate behaves exactly like Run.
+func RunWithGate(tcpCh, embedCh *transport.Channel, readOnly bool, policy CouplingPolicy, gate BackpressureGate) error {
+	return runPump(tcpCh, embedCh, readOnly, policy, gate)
+}
+
+func runPump(tcpCh, embedCh *transport.Channel, readOnly bool, policy CouplingPolicy, gate BackpressureGate) error {
 	errCh := make(chan error, 2)
 
-	go func() { errCh <- pumpServerToBrowser(tcpCh, embedCh, policy) }()
+	go func() { errCh <- pumpServerToBrowser(tcpCh, embedCh, policy, gate) }()
 	go func() { errCh <- pumpBrowserToServer(embedCh, tcpCh, readOnly) }()
 
 	// The relay is done the instant either direction ends, for any
@@ -152,9 +177,19 @@ func runPump(tcpCh, embedCh *transport.Channel, readOnly bool, policy CouplingPo
 // reported identically by the caller (runPump) via
 // Session.ReportRelayEnded, since design doc §7 treats "server closed
 // TCP" as fail-fast/no-retry the same as any other relay failure.
-func pumpServerToBrowser(tcpCh, embedCh *transport.Channel, policy CouplingPolicy) error {
+func pumpServerToBrowser(tcpCh, embedCh *transport.Channel, policy CouplingPolicy, gate BackpressureGate) error {
 	buf := make([]byte, serverToBrowserBufSize)
 	for {
+		if gate != nil {
+			// Per design doc §7: "tunnelBackpressure: Прекратить читать из
+			// VNC-сервера." stop is tcpCh.Done() so a channel torn down
+			// while backpressured (session.disconnect, server closed TCP,
+			// crash-recovery) never leaves this goroutine parked forever
+			// waiting for a tunnelResume that will now never arrive.
+			if !gate.WaitForReadClearance(tcpCh.Done()) {
+				return nil
+			}
+		}
 		n, readErr := tcpCh.Read(buf)
 		if n > 0 {
 			if _, err := embedCh.Write(buf[:n]); err != nil {

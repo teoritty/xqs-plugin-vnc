@@ -194,6 +194,15 @@ func (c *Channel) Close() error {
 	return nil
 }
 
+// Done returns a channel that is closed once c.Close() has been called
+// (locally) or the underlying transport has been severed. Callers use this
+// as a cancellation signal for anything that would otherwise block
+// indefinitely against this Channel's lifetime — e.g. internal/relay's
+// server->browser pump waiting on a session.tunnelBackpressure gate must
+// not leak a goroutine if the channel closes while backpressured and no
+// matching tunnelResume ever arrives.
+func (c *Channel) Done() <-chan struct{} { return c.closed }
+
 // LocalAddr implements net.Conn.
 func (c *Channel) LocalAddr() net.Addr { return c.local }
 

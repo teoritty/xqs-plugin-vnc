@@ -375,6 +375,99 @@ func TestPumpBrowserToServer_EmbedClosedBeforeClientInit(t *testing.T) {
 	}
 }
 
+// fakeGate is a minimal BackpressureGate for tests: WaitForReadClearance
+// blocks on a channel that the test controls directly (clear() closes it),
+// and records how many times it was consulted.
+type fakeGate struct {
+	mu      sync.Mutex
+	cleared chan struct{}
+	calls   int
+}
+
+func newFakeGate() *fakeGate {
+	return &fakeGate{cleared: make(chan struct{})}
+}
+
+func (g *fakeGate) clear() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	select {
+	case <-g.cleared:
+	default:
+		close(g.cleared)
+	}
+}
+
+func (g *fakeGate) WaitForReadClearance(stop <-chan struct{}) bool {
+	g.mu.Lock()
+	g.calls++
+	ch := g.cleared
+	g.mu.Unlock()
+	select {
+	case <-ch:
+		return true
+	case <-stop:
+		return false
+	}
+}
+
+func (g *fakeGate) callCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls
+}
+
+// TestPumpServerToBrowser_GateBlocksReadUntilCleared proves the real gap
+// this task closes: design doc §7's edge-case row "tunnelBackpressure:
+// Прекратить читать из VNC-сервера. При tunnelResume — возобновить." was
+// previously not wired to anything — pumpServerToBrowser had no gate
+// parameter at all. This proves that with a gate present, bytes the fake
+// VNC server writes do NOT reach the browser side while the gate is
+// withheld, and flow through immediately once cleared.
+func TestPumpServerToBrowser_GateBlocksReadUntilCleared(t *testing.T) {
+	tcpPlugin, tcpServer, _ := newFakeChannelPair(t, 0)
+	embedPlugin, embedBrowser, _ := newFakeChannelPair(t, 64*1024)
+
+	gate := newFakeGate()
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- pumpServerToBrowser(tcpPlugin, embedPlugin, DefaultCouplingPolicy, gate)
+	}()
+
+	if _, err := tcpServer.Write([]byte("hello-while-backpressured")); err != nil {
+		t.Fatalf("tcpServer.Write: %v", err)
+	}
+
+	readDone := make(chan struct{})
+	go func() {
+		buf := make([]byte, len("hello-while-backpressured"))
+		io.ReadFull(embedBrowser, buf)
+		close(readDone)
+	}()
+
+	select {
+	case <-readDone:
+		t.Fatal("browser received bytes while gate was withheld, want blocked")
+	case <-time.After(150 * time.Millisecond):
+		// still blocked, as expected.
+	}
+	if gate.callCount() == 0 {
+		t.Fatal("gate.WaitForReadClearance was never consulted")
+	}
+
+	gate.clear()
+
+	select {
+	case <-readDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("browser never received bytes after gate cleared")
+	}
+
+	tcpPlugin.Close()
+	<-resultCh
+}
+
 // TestRun_ChannelClosedTerminatesCleanly covers the other termination
 // path from design doc §7: the embed-stream channel closing (e.g. the
 // browser tab went away) must end Run without hanging, even with no

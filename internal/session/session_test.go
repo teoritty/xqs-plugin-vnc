@@ -389,3 +389,75 @@ func TestHandleEmbedViewportAndActivity(t *testing.T) {
 		t.Fatalf("IsActive() = true, want false after embedActivity(active:false)")
 	}
 }
+
+// TestHandleTunnelBackpressure_BlocksUntilResume proves the real gap this
+// task closes: before backpressure.go existed, session.tunnelBackpressure
+// and session.tunnelResume were not registered notification methods at
+// all, so nothing ever paused the server->browser read loop per design doc
+// §7's edge-case row. This proves WaitForReadClearance blocks after
+// tunnelBackpressure and unblocks (returning true) once the matching
+// tunnelResume notification arrives.
+func TestHandleTunnelBackpressure_BlocksUntilResume(t *testing.T) {
+	caller := &fakeCaller{}
+	h, _ := newTestHandler(caller)
+	s := &Session{id: "sess-bp", caller: caller, active: true}
+	h.setSession("sess-bp", s)
+
+	bpParams, _ := json.Marshal(map[string]any{"sessionId": "sess-bp"})
+	h.handleTunnelBackpressure(&ipc.Notification{Method: MethodSessionTunnelBackpressure, Params: bpParams})
+
+	cleared := make(chan bool, 1)
+	go func() {
+		cleared <- s.WaitForReadClearance(make(chan struct{}))
+	}()
+
+	select {
+	case <-cleared:
+		t.Fatal("WaitForReadClearance returned before tunnelResume, want blocked")
+	case <-time.After(100 * time.Millisecond):
+		// still blocked, as expected.
+	}
+
+	h.handleTunnelResume(&ipc.Notification{Method: MethodSessionTunnelResume, Params: bpParams})
+
+	select {
+	case ok := <-cleared:
+		if !ok {
+			t.Fatal("WaitForReadClearance() = false after tunnelResume, want true")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitForReadClearance did not unblock after tunnelResume")
+	}
+}
+
+// TestWaitForReadClearance_StopUnblocksWithoutResume proves a torn-down
+// channel (stop fires) unblocks WaitForReadClearance even if
+// session.tunnelResume never arrives — otherwise a session.disconnect or
+// server-closed-TCP mid-backpressure would leak the pump goroutine forever
+// (design doc §7's "Закрытие сессии" row: no assumption of a final
+// courtesy signal).
+func TestWaitForReadClearance_StopUnblocksWithoutResume(t *testing.T) {
+	s := &Session{id: "sess-bp2"}
+	s.setBackpressure(true)
+
+	stop := make(chan struct{})
+	done := make(chan bool, 1)
+	go func() { done <- s.WaitForReadClearance(stop) }()
+
+	select {
+	case <-done:
+		t.Fatal("WaitForReadClearance returned before stop fired, want blocked")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(stop)
+
+	select {
+	case ok := <-done:
+		if ok {
+			t.Fatal("WaitForReadClearance() = true after stop fired, want false")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitForReadClearance did not unblock after stop")
+	}
+}

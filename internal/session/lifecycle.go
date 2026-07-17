@@ -27,16 +27,18 @@ import (
 // Method names this Handler answers, per docs/plugin-api.md's
 // "Session embed lifecycle" and "Host -> plugin notifications (embed)".
 const (
-	MethodSessionConnect       = "session.connect"
-	MethodSessionDisconnect    = "session.disconnect"
-	MethodSessionEmbedViewport = "session.embedViewport"
-	MethodSessionEmbedActivity = "session.embedActivity"
+	MethodSessionConnect            = "session.connect"
+	MethodSessionDisconnect         = "session.disconnect"
+	MethodSessionEmbedViewport      = "session.embedViewport"
+	MethodSessionEmbedActivity      = "session.embedActivity"
+	MethodSessionTunnelBackpressure = "session.tunnelBackpressure"
+	MethodSessionTunnelResume       = "session.tunnelResume"
 )
 
 // JSON-RPC 2.0 standard error codes used by this package, per
 // docs/plugin-api.md's RPC error code table.
 const (
-	errInvalidParams = -32602
+	errInvalidParams  = -32602
 	errMethodNotFound = -32601
 )
 
@@ -90,6 +92,10 @@ type Session struct {
 	viewport     EmbedViewport
 	active       bool
 	embedToken   registerEmbedResult
+	// backpressureGate is non-nil while the host has signaled
+	// session.tunnelBackpressure and no matching session.tunnelResume has
+	// arrived yet; see backpressure.go.
+	backpressureGate chan struct{}
 }
 
 // ID returns the sessionId this Session was constructed for.
@@ -265,6 +271,10 @@ func (h *Handler) handleNotification(ctx context.Context, n *ipc.Notification) {
 		h.handleEmbedViewport(n)
 	case MethodSessionEmbedActivity:
 		h.handleEmbedActivity(n)
+	case MethodSessionTunnelBackpressure:
+		h.handleTunnelBackpressure(n)
+	case MethodSessionTunnelResume:
+		h.handleTunnelResume(n)
 	default:
 		// Unknown notification methods are ignored, matching
 		// internal/lifecycle.Handler's convention: a notification has no
