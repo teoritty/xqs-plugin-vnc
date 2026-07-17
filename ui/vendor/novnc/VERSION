@@ -1,0 +1,22 @@
+@novnc/novnc 1.7.0
+
+Vendored 2026-07-17 via `npm pack @novnc/novnc@1.7.0` (registry tarball
+sha512-ucEJOx4T2avIR[...]ElNFouK13RzyA==, shasum 7f832cf07c66475a81a25708b8e5299a5c4efec5).
+
+Contents copied verbatim from the npm package (no build step run — this is
+already the published, browser-usable ES module source):
+  - core/            noVNC's RFB client and all its runtime dependencies
+                      (crypto, decoders, input, display, websock, etc.)
+  - vendor/pako/      zlib inflate/deflate, imported by core/inflator.js and
+                      core/deflator.js (needed by the tight/zrle decoders)
+  - LICENSE.txt, AUTHORS
+
+Not vendored (not needed to load `RFB` as an ES module in a browser):
+  - docs/, README.md, package.json, app/ (noVNC's own demo UI), tests,
+    build tooling, po/ translations.
+
+Entry point: core/rfb.js, default-exports the `RFB` class
+(package.json "exports": "./core/rfb.js").
+
+To re-vendor a newer version: `npm pack @novnc/novnc@<version>`, extract,
+replace core/ and vendor/pako/ wholesale, update this file.
