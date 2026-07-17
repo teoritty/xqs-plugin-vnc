@@ -27,6 +27,12 @@ go.work.sum
 # env file
 .env
 
+# Release packaging output (cross-compiled binaries, .xqsp bundles,
+# and the generated dev/test-only Ed25519 signing key). None of this
+# is meant to be committed — a real release key belongs in secure
+# infra, not the repo, and dist/ is throwaway build output.
+/dist/
+
 # Editor/IDE
 # .idea/
 # .vscode/
