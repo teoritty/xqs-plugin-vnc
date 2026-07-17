@@ -25,3 +25,10 @@ Task 13: complete (commit 812bd4d, audit found 1 real gap: tunnelBackpressure/tu
 Phase 5 (edge cases and resilience) complete.
 Task 14: complete (commits b4dbdb3, 6c6203b, review approved w/ minor test-coverage follow-up, follow-up applied: automated tests added 0%->52.2%)
 Phase 6 (packaging) complete. All 14 tasks done. Full repo green: go build ./... and go test ./... -race clean across 8 packages.
+
+## Final whole-branch review (2026-07-17, opus)
+Found: Important — session.tunnelBackpressure/tunnelResume notifications were dropped by cmd/xqs-vnc/wiring.go's router (missing from sessionMethods map); the gate machinery from Task 13 was fully wired downstream but never armed in the real process. Fixed in c7e2097 with a router-level regression test proving the fix (confirmed it fails on reverted code).
+Also fixed: Minor — internal/relay/coupling.go's DefaultCouplingPolicy hardcoded Capacity:8 instead of referencing transport.EmbedStreamInitialCredit; now derived from the single source of truth.
+All other findings: clean (ClientInit boundary intact end-to-end, password lifecycle correct on all exit paths, manifest accurate, no dead code/scope creep, vendored noVNC unmodified).
+Full repo green: go build ./... and go test ./... -race clean across 8 packages.
+STATUS: All 14 tasks complete, final review issues fixed. Plugin is a working, tested, integration-verified v1 VNC client (phases 1,2,3,5,6; phase 4 VeNCrypt deliberately deferred per plan).
