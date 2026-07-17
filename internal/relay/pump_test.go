@@ -248,10 +248,23 @@ func TestRun_FullHappyPath(t *testing.T) {
 		t.Errorf("browser got %q, want %q", gotAtBrowser, serverInit)
 	}
 
-	// Browser->server: ClientInit-equivalent bytes (a well-formed
-	// FramebufferUpdateRequest so the readonly filter's message parsing
-	// doesn't reject it) written by the fake browser must arrive
-	// byte-for-byte at the fake server.
+	// Browser->server: a real single-byte ClientInit (shared-flag=1, what
+	// noVNC always sends) must be relayed raw and unmodified, BEFORE any
+	// subsequent client message is parsed by the readonly filter. Then a
+	// real FramebufferUpdateRequest proves the filter resumes parsing
+	// correctly right after that one raw byte.
+	clientInit := []byte{1}
+	if _, err := embedBrowser.Write(clientInit); err != nil {
+		t.Fatalf("embedBrowser.Write(clientInit): %v", err)
+	}
+	gotClientInit := make([]byte, len(clientInit))
+	if _, err := io.ReadFull(tcpServer, gotClientInit); err != nil {
+		t.Fatalf("read ClientInit at fake server: %v", err)
+	}
+	if !bytes.Equal(gotClientInit, clientInit) {
+		t.Errorf("server got ClientInit %x, want %x", gotClientInit, clientInit)
+	}
+
 	clientMsg := []byte{3, 0, 0, 0, 0, 0, 0, 10, 0, 10}
 	if _, err := embedBrowser.Write(clientMsg); err != nil {
 		t.Fatalf("embedBrowser.Write: %v", err)
@@ -305,13 +318,25 @@ func TestRun_ReadOnlyDropsInputButForwardsFramebufferRequests(t *testing.T) {
 		runErrCh <- Run(tcpPlugin, embedPlugin, true, DefaultCouplingPolicy)
 	}()
 
+	clientInit := []byte{1}
 	keyEvent := []byte{4, 1, 0, 0, 0, 0, 0, 0x41}
 	fbRequest := []byte{3, 0, 0, 0, 0, 0, 0, 10, 0, 10}
+	if _, err := embedBrowser.Write(clientInit); err != nil {
+		t.Fatalf("write clientInit: %v", err)
+	}
 	if _, err := embedBrowser.Write(keyEvent); err != nil {
 		t.Fatalf("write keyEvent: %v", err)
 	}
 	if _, err := embedBrowser.Write(fbRequest); err != nil {
 		t.Fatalf("write fbRequest: %v", err)
+	}
+
+	gotClientInit := make([]byte, len(clientInit))
+	if _, err := io.ReadFull(tcpServer, gotClientInit); err != nil {
+		t.Fatalf("read ClientInit at fake server: %v", err)
+	}
+	if !bytes.Equal(gotClientInit, clientInit) {
+		t.Errorf("server got ClientInit %x, want %x", gotClientInit, clientInit)
 	}
 
 	got := make([]byte, len(fbRequest))
@@ -330,6 +355,23 @@ func TestRun_ReadOnlyDropsInputButForwardsFramebufferRequests(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run() did not terminate after embed-stream closed")
+	}
+}
+
+// TestPumpBrowserToServer_EmbedClosedBeforeClientInit covers the boundary
+// error path: if embed-stream closes before the browser ever sends its
+// single-byte ClientInit, pumpBrowserToServer must fail rather than
+// silently proceeding into FilterOnce with no bytes.
+func TestPumpBrowserToServer_EmbedClosedBeforeClientInit(t *testing.T) {
+	embedA, embedB, _ := newFakeChannelPair(t, 64*1024)
+	tcpA, _, _ := newFakeChannelPair(t, 0)
+
+	embedB.Close()
+	embedA.Close()
+
+	err := pumpBrowserToServer(embedA, tcpA, false)
+	if err == nil {
+		t.Error("pumpBrowserToServer() = nil, want error when embed-stream closes before ClientInit")
 	}
 }
 

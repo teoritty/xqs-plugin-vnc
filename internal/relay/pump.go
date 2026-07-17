@@ -200,6 +200,26 @@ func pumpServerToBrowser(tcpCh, embedCh *transport.Channel, policy CouplingPolic
 // client message type — per design doc §5, that desyncs the byte stream
 // irrecoverably and must terminate the session, not just this call.
 func pumpBrowserToServer(embedCh, tcpCh *transport.Channel, readOnly bool) error {
+	// ClientInit (RFC 6143 §7.3.1) is a single raw shared-flag byte with no
+	// message-type semantics. rfb.Frontshake's doc comment is explicit that
+	// it never reads this byte and the caller must raw-relay it — feeding
+	// it into FilterOnce/rfb.ReadClientMessage would misparse it as a
+	// bogus client MESSAGE type (0 = SetPixelFormat, consuming 19 bytes
+	// that don't belong to it; 1 = unrecognized type, fatal). Per design
+	// doc §1's "ClientInit не трогаем" invariant, it is relayed verbatim,
+	// unmodified, without inspecting its value — noVNC always sends
+	// shared=1 and v1 has no field that needs to branch on it.
+	var clientInit [1]byte
+	if _, err := io.ReadFull(embedCh, clientInit[:]); err != nil {
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("relay: embed-stream closed before ClientInit: %w", err)
+		}
+		return fmt.Errorf("relay: read ClientInit: %w", err)
+	}
+	if _, err := tcpCh.Write(clientInit[:]); err != nil {
+		return fmt.Errorf("relay: relay ClientInit to tcp-relay: %w", err)
+	}
+
 	for {
 		_, err := FilterOnce(embedCh, tcpCh, readOnly)
 		if err != nil {
