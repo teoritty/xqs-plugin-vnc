@@ -70,6 +70,37 @@ func (s *Session) Teardown(ctx context.Context, reason string) {
 	}
 }
 
+// ReportRelayEnded is the hook Phase 3d's relay pump (internal/relay)
+// uses to report that the raw bidirectional relay it started via
+// RelayStarter.StartRelay has ended, asynchronously, after orchestrate()
+// already moved s to StateReady and returned — nothing else in this
+// package observes a post-ready relay failure, since orchestrate's own
+// error handling only covers the synchronous connect sequence.
+//
+// A non-nil err (server closed its TCP connection, an unrecognized
+// client message desynchronized the stream, a channel-bus failure, ...)
+// per design doc §7's edge-case table is fail-fast: "session dies without
+// retry" — reported via session.updateState(error) and then torn down.
+//
+// If s has already been torn down (e.g. a session.disconnect notification
+// arrived first and concurrently closed both channels, which is exactly
+// what makes the relay's own Read/Write calls return an error too), this
+// is a no-op: a clean, user-initiated disconnect must never be
+// retroactively reported as a relay error.
+func (s *Session) ReportRelayEnded(ctx context.Context, err error) {
+	s.mu.Lock()
+	alreadyTorndown := s.torndown
+	s.mu.Unlock()
+	if alreadyTorndown {
+		return
+	}
+
+	if err != nil {
+		s.updateState(ctx, StateError, err.Error())
+	}
+	s.Teardown(ctx, "relay-ended")
+}
+
 // clearPassword zeroes s.password in place (clear(), not a reassignment
 // to nil — a reassignment would leave the original backing array's bytes
 // live in memory until GC, defeating the point). Safe to call multiple

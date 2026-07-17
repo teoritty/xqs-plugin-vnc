@@ -241,6 +241,18 @@ func (c *CreditChannel) GrantCredit(n int) error {
 	return nil
 }
 
+// Remaining reports c's current sender-side credit window: how many more
+// frames c may Send before blocking. Safe for concurrent use. This is a
+// read-only snapshot for backpressure/coupling policies (see
+// internal/relay/coupling.go) that want to react to a shrinking outbound
+// window without parking a goroutine in Send/TrySend — it does not itself
+// consume or reserve anything.
+func (c *CreditChannel) Remaining() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sendCred
+}
+
 // Recv implements FrameSource. It blocks until a payload is available or
 // the channel closes, in which case it returns ok == false — matching
 // conn.go's FrameSource contract exactly.
@@ -301,6 +313,18 @@ func (c *Channel) GrantCredit(n int) error {
 		return fmt.Errorf("transport: GrantCredit requires a credit-windowed channel, got %T", c.source)
 	}
 	return cc.GrantCredit(n)
+}
+
+// SendCreditRemaining reports c's current sender-side credit window (see
+// CreditChannel.Remaining), and whether c is backed by a credit-windowed
+// source at all — false for a Channel built over some other FrameSource
+// (e.g. a test fake), matching GrantCredit's own type-assertion pattern.
+func (c *Channel) SendCreditRemaining() (int, bool) {
+	cc, ok := c.source.(*CreditChannel)
+	if !ok {
+		return 0, false
+	}
+	return cc.Remaining(), true
 }
 
 // Registry routes decoded channel-bus frames (channelId != 0) to the

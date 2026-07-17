@@ -36,6 +36,16 @@ const (
 	embedStreamMaxFramePayload = 64 * 1024   // 64 KiB, per API-FINDINGS.md F-8
 )
 
+// Exported aliases of the per-purpose initial credit constants above, for
+// callers outside this package that need the same numbers without
+// duplicating them — notably internal/relay/coupling.go, which needs
+// embed-stream's full credit-window capacity to compute how depleted the
+// window currently is (see CreditChannel.Remaining / Channel.SendCreditRemaining).
+const (
+	TCPRelayInitialCredit    = tcpRelayInitialCredit
+	EmbedStreamInitialCredit = embedStreamInitialCredit
+)
+
 // purposeParams returns the initial sender-side credit and max frame
 // payload for purpose, or an error if purpose isn't one this plugin knows
 // how to open (exec/udp-relay are valid host-side purposes per

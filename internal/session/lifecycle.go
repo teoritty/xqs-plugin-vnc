@@ -16,6 +16,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"strconv"
 	"sync"
 
 	"xqs-plugin-vnc/internal/ipc"
@@ -141,7 +143,17 @@ func (s *Session) orchestrate(ctx context.Context) {
 
 	s.updateState(ctx, StateConnecting, "")
 
-	tcpCh, err := transport.OpenChannel(ctx, s.caller, s.frameWriter, s.registry, transport.PurposeTCPRelay, s.id, "")
+	// tcp-relay's hint is the dial target: per docs/plugin-api.md's
+	// purpose table, "tcp-relay: Dials a target through the existing
+	// TunnelDialProxy allowlist/dial policy" — the host needs host:port
+	// to know what to dial, since the plugin process never gets a raw
+	// socket itself. Once open, this channel *is* the TCP connection to
+	// the VNC server (transport.Channel satisfies net.Conn) — Phase 3d's
+	// relay pump (internal/relay) reads/writes it directly; there is no
+	// separate net.Dial anywhere in this plugin.
+	host, port := s.HostPort()
+	tcpHint := net.JoinHostPort(host, strconv.Itoa(port))
+	tcpCh, err := transport.OpenChannel(ctx, s.caller, s.frameWriter, s.registry, transport.PurposeTCPRelay, s.id, tcpHint)
 	if err != nil {
 		s.updateState(ctx, StateError, "failed to open tcp-relay channel")
 		return
