@@ -50,6 +50,23 @@ func (e *ErrSecurityRejected) Error() string {
 	return fmt.Sprintf("rfb: security handshake rejected by server: %s", e.Reason)
 }
 
+// ErrUnknownClientMessageType is returned by ReadClientMessage when a
+// client->server message's type byte is not one of the known types (§5 of
+// the design plan's table). This is deliberately fatal, not skippable: the
+// message body's length is type-dependent (some are variable-length), so
+// an unknown type means the parser cannot know how many bytes to consume
+// to stay in sync with the stream. A caller (e.g. the read-only filter)
+// must treat this as an unrecoverable desync and close the session rather
+// than attempt to resynchronize or pass the byte through.
+type ErrUnknownClientMessageType struct {
+	// Type is the unrecognized message type byte as received on the wire.
+	Type ClientMessageType
+}
+
+func (e *ErrUnknownClientMessageType) Error() string {
+	return fmt.Sprintf("rfb: unknown client message type %d (fatal: cannot determine message length, stream desynchronized)", uint8(e.Type))
+}
+
 // ErrTruncated wraps a short read at a specific protocol field boundary so
 // callers can tell "clean early close" (io.EOF, e.g. peer closed cleanly
 // before sending anything for this field) apart from "malformed data mid
