@@ -161,14 +161,14 @@ func (s *Session) orchestrate(ctx context.Context) {
 	tcpHint := net.JoinHostPort(host, strconv.Itoa(port))
 	tcpCh, err := transport.OpenChannel(ctx, s.caller, s.frameWriter, s.registry, transport.PurposeTCPRelay, s.id, tcpHint)
 	if err != nil {
-		s.updateState(ctx, StateError, "failed to open tcp-relay channel")
+		s.updateState(ctx, StateError, "failed to open tcp-relay channel: "+err.Error())
 		return
 	}
 
 	embedCh, err := transport.OpenChannel(ctx, s.caller, s.frameWriter, s.registry, transport.PurposeEmbedStream, s.id, tunnelIDMain)
 	if err != nil {
 		_ = transport.CloseChannel(ctx, s.caller, tcpCh, "setup-failed", "")
-		s.updateState(ctx, StateError, "failed to open embed-stream channel")
+		s.updateState(ctx, StateError, "failed to open embed-stream channel: "+err.Error())
 		return
 	}
 
@@ -178,13 +178,13 @@ func (s *Session) orchestrate(ctx context.Context) {
 	s.mu.Unlock()
 
 	if _, err := s.registerEmbed(ctx); err != nil {
-		s.updateState(ctx, StateError, "session.registerEmbed failed")
+		s.updateState(ctx, StateError, "session.registerEmbed failed: "+err.Error())
 		return
 	}
 
 	if s.relay != nil {
 		if err := s.relay.StartRelay(ctx, s, tcpCh, embedCh); err != nil {
-			s.updateState(ctx, StateError, "relay start failed")
+			s.updateState(ctx, StateError, "relay start failed: "+err.Error())
 			return
 		}
 	}
