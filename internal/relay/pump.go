@@ -37,11 +37,31 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"time"
 
 	"xqs-plugin-vnc/internal/rfb"
 	"xqs-plugin-vnc/internal/session"
 	"xqs-plugin-vnc/internal/transport"
 )
+
+// handshakeTimeout bounds how long doHandshakes waits for the VNC server's
+// RFB handshake and the browser's synthetic frontshake. Neither
+// rfb.Handshake nor rfb.Frontshake carries any timeout of its own (they
+// block on plain io.ReadFull against the channel), so without this a
+// server that never sends its version banner (bad host:port, firewalled,
+// or a protocol this plugin can't parse) leaves the session stuck at
+// "Connecting..." forever with no error ever reaching updateState.
+const handshakeTimeout = 15 * time.Second
+
+// debugLog writes a diagnostic line to stderr. The host does not surface
+// plugin stderr in its UI, but it does show up in whatever wraps the
+// plugin process (e.g. captured in the host's own log file), which is the
+// only place to look when a session hangs before any updateState/RPC
+// traffic would explain why.
+func debugLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "xqs-vnc: relay: "+format+"\n", args...)
+}
 
 // serverToBrowserBufSize bounds how much VNC-server data Pump reads from
 // tcpChannel per iteration before relaying it onward. It is deliberately
@@ -115,12 +135,26 @@ func (p Pump) StartRelay(ctx context.Context, s *session.Session, tcpChannel, em
 // into StateError before ever reaching "ready") while Run itself only
 // needs to run the two already-authenticated raw pumps.
 func doHandshakes(tcpChannel, embedChannel *transport.Channel, password []byte) error {
+	deadline := time.Now().Add(handshakeTimeout)
+	_ = tcpChannel.SetDeadline(deadline)
+	_ = embedChannel.SetDeadline(deadline)
+	defer func() {
+		_ = tcpChannel.SetDeadline(time.Time{})
+		_ = embedChannel.SetDeadline(time.Time{})
+	}()
+
+	debugLog("dialing VNC server handshake (timeout=%s)", handshakeTimeout)
 	if _, err := rfb.Handshake(tcpChannel, password); err != nil {
+		debugLog("VNC server handshake failed: %v", err)
 		return fmt.Errorf("relay: VNC server handshake: %w", err)
 	}
+	debugLog("VNC server handshake OK")
+
 	if _, err := rfb.Frontshake(embedChannel); err != nil {
+		debugLog("browser frontshake failed: %v", err)
 		return fmt.Errorf("relay: browser frontshake: %w", err)
 	}
+	debugLog("browser frontshake OK")
 	return nil
 }
 
