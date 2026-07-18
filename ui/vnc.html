@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>xqs-plugin-vnc</title>
+  <!--
+    embedEntry for the "vnc" connection protocol (plugin.json
+    contributions.connectionProtocols[0].embedEntry: "ui/vnc.html").
+
+    Loaded inside a sandboxed, per-session iframe at uiUrl
+    ("/embed/s/<token>/ui/vnc.html" per docs/plugin-api.md
+    "session.registerEmbed" response shape). No external CDN references —
+    everything referenced here is vendored under ui/vendor/novnc/, per the
+    plan's iframe/CSP/sandbox trust model (docs/superpowers/specs/
+    2026-07-16-vnc-plugin-design.md §5/§6).
+  -->
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a1a;
+      color: #eee;
+      font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #vnc-container {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    /* Shown until noVNC's "connect" event fires; hidden by boot.js. */
+    #vnc-status {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="vnc-container">
+    <div id="vnc-status">Connecting&hellip;</div>
+  </div>
+  <script type="module" src="./boot.js"></script>
+</body>
+</html>
