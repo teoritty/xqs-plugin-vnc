@@ -61,7 +61,7 @@
                 "id": "readOnly",
                 "label": "Read only",
                 "type": "checkbox",
-                "default": "false",
+                "default": false,
                 "width": "full",
                 "order": 1,
                 "secret": false
