@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+
+      - name: Build GitHub release asset
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          $asset = "xqs-plugin-vnc-windows-amd64.exe"
+          go build -ldflags="-s -w" -trimpath -o "dist/release/$asset" ./cmd/xqs-vnc
+          $hash = (Get-FileHash -Algorithm SHA256 -Path "dist/release/$asset").Hash.ToLower()
+          "$hash  $asset" | Out-File -Encoding ascii -NoNewline "dist/release/SHA256SUMS"
+          Add-Content -Encoding ascii "dist/release/SHA256SUMS" ""
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/release/xqs-plugin-vnc-windows-amd64.exe
+            dist/release/SHA256SUMS
+          prerelease: true
+          generate_release_notes: true

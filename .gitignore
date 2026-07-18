@@ -37,6 +37,10 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# Local agent tooling: not part of the plugin, developer-machine only.
+/.claude/
+/.superpowers/
+
 # Local-only reference material: xQuakShell API docs and working notes.
 # Kept on disk for development, deliberately out of the repository.
 /architecture.md
@@ -45,3 +49,4 @@ go.work.sum
 /security-model.md
 /docs/
 /API-FINDINGS.md
+
