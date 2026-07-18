@@ -17,12 +17,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 
 	"xqs-plugin-vnc/internal/ipc"
 	"xqs-plugin-vnc/internal/transport"
 )
+
+// traceLog writes an unbuffered diagnostic line straight to the plugin
+// process's own stderr pipe — deliberately independent of the JSON-RPC
+// control plane (stdin/stdout) so it still reports progress even if a
+// caller.Call to the host (channel.open, session.updateState, ...) is
+// itself the thing stuck blocking, e.g. on a full/unread stdout pipe.
+func traceLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "xqs-vnc: orchestrate: "+format+"\n", args...)
+}
 
 // Method names this Handler answers, per docs/plugin-api.md's
 // "Session embed lifecycle" and "Host -> plugin notifications (embed)".
@@ -147,7 +157,11 @@ func (s *Session) orchestrate(ctx context.Context) {
 		}
 	}()
 
+	traceLog("session %s: orchestrate entered, host=%s port=%d", s.id, s.host, s.port)
+
+	traceLog("session %s: calling updateState(connecting)", s.id)
 	s.updateState(ctx, StateConnecting, "")
+	traceLog("session %s: updateState(connecting) call returned", s.id)
 
 	// tcp-relay's hint is the dial target: per docs/plugin-api.md's
 	// purpose table, "tcp-relay: Dials a target through the existing
@@ -159,37 +173,51 @@ func (s *Session) orchestrate(ctx context.Context) {
 	// separate net.Dial anywhere in this plugin.
 	host, port := s.HostPort()
 	tcpHint := net.JoinHostPort(host, strconv.Itoa(port))
+	traceLog("session %s: opening tcp-relay channel (hint=%s)", s.id, tcpHint)
 	tcpCh, err := transport.OpenChannel(ctx, s.caller, s.frameWriter, s.registry, transport.PurposeTCPRelay, s.id, tcpHint)
 	if err != nil {
+		traceLog("session %s: tcp-relay channel.open failed: %v", s.id, err)
 		s.updateState(ctx, StateError, "failed to open tcp-relay channel: "+err.Error())
 		return
 	}
+	traceLog("session %s: tcp-relay channel open", s.id)
 
+	traceLog("session %s: opening embed-stream channel", s.id)
 	embedCh, err := transport.OpenChannel(ctx, s.caller, s.frameWriter, s.registry, transport.PurposeEmbedStream, s.id, tunnelIDMain)
 	if err != nil {
+		traceLog("session %s: embed-stream channel.open failed: %v", s.id, err)
 		_ = transport.CloseChannel(ctx, s.caller, tcpCh, "setup-failed", "")
 		s.updateState(ctx, StateError, "failed to open embed-stream channel: "+err.Error())
 		return
 	}
+	traceLog("session %s: embed-stream channel open", s.id)
 
 	s.mu.Lock()
 	s.tcpChannel = tcpCh
 	s.embedChannel = embedCh
 	s.mu.Unlock()
 
+	traceLog("session %s: calling session.registerEmbed", s.id)
 	if _, err := s.registerEmbed(ctx); err != nil {
+		traceLog("session %s: registerEmbed failed: %v", s.id, err)
 		s.updateState(ctx, StateError, "session.registerEmbed failed: "+err.Error())
 		return
 	}
+	traceLog("session %s: registerEmbed OK", s.id)
 
 	if s.relay != nil {
+		traceLog("session %s: starting relay", s.id)
 		if err := s.relay.StartRelay(ctx, s, tcpCh, embedCh); err != nil {
+			traceLog("session %s: relay start failed: %v", s.id, err)
 			s.updateState(ctx, StateError, "relay start failed: "+err.Error())
 			return
 		}
+		traceLog("session %s: relay started", s.id)
 	}
 
+	traceLog("session %s: calling updateState(ready)", s.id)
 	s.updateState(ctx, StateReady, "")
+	traceLog("session %s: orchestrate complete", s.id)
 }
 
 // Handler answers the session.* RPC methods (session.connect) and

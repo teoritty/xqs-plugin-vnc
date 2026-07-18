@@ -1,7 +1,7 @@
 {
   "id": "com.xquakshell.vnc",
   "name": "VNC",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "VNC session client (embed viewer) for xQuakShell.",
   "engine": {
     "type": "go-binary",
