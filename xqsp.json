@@ -1,0 +1,79 @@
+{
+  "id": "com.xquakshell.vnc",
+  "name": "VNC",
+  "version": "1.0.0",
+  "description": "VNC session client (embed viewer) for xQuakShell.",
+  "author": "teoritty",
+  "license": "GPL-3.0",
+  "homepage": "https://github.com/teoritty/xqs-plugin-vnc",
+  "tags": ["vnc", "remote-desktop", "protocol"],
+  "requires": {
+    "pluginApi": "1.0.0"
+  },
+  "engine": {
+    "type": "go-binary",
+    "entry": "xqs-vnc.exe"
+  },
+  "isolation": "per-session",
+  "activationEvents": ["onProtocol:vnc"],
+  "capabilities": {
+    "session": {
+      "connectProtocols": ["vnc"],
+      "embed": true,
+      "terminal": false
+    },
+    "network": {
+      "outbound": [],
+      "allowArbitraryOutbound": true,
+      "allowPrivateNetworks": true
+    },
+    "channel": {
+      "purposes": ["embed-stream", "tcp-relay"],
+      "maxConcurrent": 2
+    }
+  },
+  "contributions": {
+    "connectionProtocols": [
+      {
+        "id": "vnc",
+        "label": "VNC",
+        "defaultPort": 5900,
+        "icon": "monitor",
+        "embedEntry": "ui/vnc.html",
+        "fields": [
+          {
+            "id": "auth",
+            "label": "Authentication",
+            "order": 1,
+            "fields": [
+              {
+                "id": "password",
+                "label": "Password",
+                "type": "password",
+                "width": "full",
+                "order": 1,
+                "secret": true
+              }
+            ]
+          },
+          {
+            "id": "options",
+            "label": "Options",
+            "order": 2,
+            "fields": [
+              {
+                "id": "readOnly",
+                "label": "Read only",
+                "type": "checkbox",
+                "default": "false",
+                "width": "full",
+                "order": 1,
+                "secret": false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
