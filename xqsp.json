@@ -69,6 +69,50 @@
                 "width": "full",
                 "order": 1,
                 "secret": false
+              },
+              {
+                "id": "quality",
+                "label": "Quality",
+                "description": "JPEG quality for photo/video regions. Lower = less bandwidth, more artifacts. For video-heavy use try 4-5.",
+                "type": "select",
+                "default": "6",
+                "width": "half",
+                "order": 2,
+                "secret": false,
+                "options": [
+                  { "value": "9", "label": "9 - Best" },
+                  { "value": "8", "label": "8" },
+                  { "value": "7", "label": "7" },
+                  { "value": "6", "label": "6 - Default" },
+                  { "value": "5", "label": "5" },
+                  { "value": "4", "label": "4 - Low bandwidth" },
+                  { "value": "3", "label": "3" },
+                  { "value": "2", "label": "2" },
+                  { "value": "1", "label": "1" },
+                  { "value": "0", "label": "0 - Lowest" }
+                ]
+              },
+              {
+                "id": "compression",
+                "label": "Compression",
+                "description": "zlib effort for non-photo regions (lossless). Higher = less bandwidth, more server CPU.",
+                "type": "select",
+                "default": "6",
+                "width": "half",
+                "order": 3,
+                "secret": false,
+                "options": [
+                  { "value": "0", "label": "0 - None" },
+                  { "value": "1", "label": "1" },
+                  { "value": "2", "label": "2" },
+                  { "value": "3", "label": "3" },
+                  { "value": "4", "label": "4" },
+                  { "value": "5", "label": "5" },
+                  { "value": "6", "label": "6 - Default" },
+                  { "value": "7", "label": "7" },
+                  { "value": "8", "label": "8" },
+                  { "value": "9", "label": "9 - Max" }
+                ]
               }
             ]
           }

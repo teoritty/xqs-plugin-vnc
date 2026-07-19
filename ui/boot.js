@@ -121,6 +121,17 @@ function readReadOnlyFromQuery() {
   return raw === '1' || raw === 'true';
 }
 
+// readIntFromQuery reads an integer tuning knob (RFB qualityLevel / compressionLevel) from the
+// iframe URL, clamped to [min,max]. Returns null when absent or invalid so the caller keeps noVNC's
+// own default. The host (SessionEmbedPanel) appends these from the connection's plugin fields.
+function readIntFromQuery(name, min, max) {
+  const raw = new URLSearchParams(window.location.search).get(name);
+  if (raw === null || raw === '') return null;
+  const n = Number.parseInt(raw, 10);
+  if (Number.isNaN(n)) return null;
+  return Math.min(max, Math.max(min, n));
+}
+
 async function resolveTunnelUrl() {
   const postMessagePromise = waitForPostMessageTunnelUrl(POSTMESSAGE_TIMEOUT_MS);
   const locationUrl = deriveTunnelUrlFromLocation();
@@ -202,6 +213,18 @@ async function main() {
   // noVNC re-applies both on its own ResizeObserver as the iframe (and thus the panel) resizes.
   rfb.resizeSession = true;
   rfb.scaleViewport = true;
+
+  // Bandwidth vs. picture-quality knobs (RFB Tight encoding), tunable per connection.
+  //   - qualityLevel (0..9): JPEG quality for photographic/video regions. This is the ONLY real
+  //     lever for full-motion content (a video is re-encoded as JPEG per frame, with no inter-frame
+  //     compression like H.264), so lowering it is how you cut video bandwidth; it trades sharpness.
+  //   - compressionLevel (0..9): zlib effort for the non-JPEG (basic/palette) regions — lossless,
+  //     helps UI/text far more than video, and costs server CPU.
+  // Absent -> keep noVNC's defaults (quality 6, compression 2).
+  const quality = readIntFromQuery('quality', 0, 9);
+  if (quality !== null) rfb.qualityLevel = quality;
+  const compression = readIntFromQuery('compression', 0, 9);
+  if (compression !== null) rfb.compressionLevel = compression;
 
   rfb.addEventListener('connect', () => {
     hideStatus();
