@@ -355,12 +355,38 @@ func TestRegistry_RoutesDataAndCreditFrames(t *testing.T) {
 
 func TestRegistry_UnknownChannelIsProtocolViolation(t *testing.T) {
 	reg := NewRegistry()
+	reg.grace = 10 * time.Millisecond // an id that is never registered still fails, just quickly
 	err := reg.HandleChannelFrame(context.Background(), ipc.Frame{
 		Kind: ipc.KindChannelData, ChannelID: 999, Payload: []byte("x"),
 	})
 	var pv *ipc.ProtocolViolationError
 	if !errors.As(err, &pv) {
 		t.Fatalf("HandleChannelFrame for unknown channelId: got %v, want *ipc.ProtocolViolationError", err)
+	}
+}
+
+// TestRegistry_FrameRacingRegistrationIsRoutedWithinGrace is the VNC-crash regression: a
+// server-speaks-first peer's first data frame can reach the read loop just before the
+// orchestrate goroutine registers the channel (Register runs after channel.open returns, on a
+// different goroutine). The grace must route it rather than kill the process.
+func TestRegistry_FrameRacingRegistrationIsRoutedWithinGrace(t *testing.T) {
+	w := &recordingWriter{}
+	cc := NewCreditChannel(7, w, 4, 1024)
+	reg := NewRegistry()
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		reg.Register(cc)
+	}()
+
+	if err := reg.HandleChannelFrame(context.Background(), ipc.Frame{
+		Kind: ipc.KindChannelData, ChannelID: 7, Payload: []byte("RFB 003.008\n"),
+	}); err != nil {
+		t.Fatalf("frame that raced registration should route within the grace, got: %v", err)
+	}
+	got, ok := cc.Recv()
+	if !ok || string(got) != "RFB 003.008\n" {
+		t.Fatalf("banner not delivered to the channel: ok=%v got=%q", ok, string(got))
 	}
 }
 

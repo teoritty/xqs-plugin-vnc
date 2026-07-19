@@ -32,9 +32,23 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"xqs-plugin-vnc/internal/ipc"
 )
+
+// channelRegisterGrace bounds how long HandleChannelFrame waits for a just-opened channelId to
+// appear in the registry before treating it as a genuine protocol violation. The host, per the
+// credit convention, may send on a channel the instant it has written the channel.open reply —
+// but this plugin registers the channel on the orchestrate goroutine, right after its
+// channel.open Call returns, which is a different goroutine than the single frame read loop
+// (cmd/xqs-vnc/main.go). So a server-speaks-first peer (VNC sends its RFB banner immediately)
+// can land the first kind=0x02 frame on the read loop a hair before Register runs. The grace
+// closes that race the same way the host's own mux tolerates in-flight frames with a closed-
+// channel grace: wait briefly for the registration that is already in flight, and only fail if
+// it never comes (a real unknown channel). Normal case resolves in microseconds; the full grace
+// elapses only for an id that is never registered at all.
+const channelRegisterGrace = 2 * time.Second
 
 // ErrNoCredit is the sentinel this file introduces to close the gap Task
 // 7's report flagged: FrameSink.Send/FrameSource.Recv return a single
@@ -343,25 +357,63 @@ func (c *Channel) SendCreditRemaining() (int, bool) {
 type Registry struct {
 	mu       sync.Mutex
 	channels map[uint32]*CreditChannel
+	// registered is closed and replaced on every Register, broadcasting to anyone waiting in
+	// awaitChannel for a channelId that is being opened concurrently (see channelRegisterGrace).
+	registered chan struct{}
+	// grace is how long awaitChannel waits for an in-flight registration; a field (not the bare
+	// const) only so tests can shrink it and not pay the full window on the unknown-channel path.
+	grace time.Duration
 }
 
 // NewRegistry returns an empty Registry.
 func NewRegistry() *Registry {
-	return &Registry{channels: make(map[uint32]*CreditChannel)}
+	return &Registry{
+		channels:   make(map[uint32]*CreditChannel),
+		registered: make(chan struct{}),
+		grace:      channelRegisterGrace,
+	}
 }
 
-// Register adds c to the registry, keyed by its channel id.
+// Register adds c to the registry, keyed by its channel id, and wakes any awaitChannel waiter.
 func (r *Registry) Register(c *CreditChannel) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.channels[c.id] = c
+	close(r.registered)
+	r.registered = make(chan struct{})
+}
+
+// awaitChannel returns the channel for id, waiting up to channelRegisterGrace for a registration
+// that is in flight on another goroutine (the channel.open Call returns and registers on the
+// orchestrate goroutine while the frame read loop may already be handling this id's first
+// frame). Returns ok == false only once the grace elapses with the id still absent.
+func (r *Registry) awaitChannel(id uint32) (*CreditChannel, bool) {
+	deadline := time.Now().Add(r.grace)
+	for {
+		r.mu.Lock()
+		c, ok := r.channels[id]
+		wait := r.registered
+		r.mu.Unlock()
+		if ok {
+			return c, true
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, false
+		}
+		timer := time.NewTimer(remaining)
+		select {
+		case <-wait:
+			timer.Stop()
+		case <-timer.C:
+			return nil, false
+		}
+	}
 }
 
 // HandleChannelFrame implements ipc.ChannelDataHandler.
 func (r *Registry) HandleChannelFrame(_ context.Context, f ipc.Frame) error {
-	r.mu.Lock()
-	c, ok := r.channels[f.ChannelID]
-	r.mu.Unlock()
+	c, ok := r.awaitChannel(f.ChannelID)
 	if !ok {
 		return &ipc.ProtocolViolationError{
 			Reason: "channelId not open",
