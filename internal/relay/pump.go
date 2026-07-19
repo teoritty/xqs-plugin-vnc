@@ -150,6 +150,18 @@ func doHandshakes(tcpChannel, embedChannel *transport.Channel, password []byte) 
 	}
 	debugLog("VNC server handshake OK")
 
+	// Replenish the tcp-relay receive window. rfb.Handshake read the VNC server's
+	// ProtocolVersion/security/challenge/SecurityResult frames (~one per TCP segment) straight off
+	// tcpChannel via Recv, which never grants credit back — so the host's presumed initial
+	// send window (TCPRelayInitialCredit frames) can be fully spent exactly when ServerInit is due.
+	// The host's server->plugin pump then blocks on WaitForCapacity with ServerInit unread in the
+	// socket, while pumpServerToBrowser only grants credit AFTER it reads a frame: a deadlock that
+	// leaves noVNC stuck at "Connecting" forever. Grant a fresh batch here so ServerInit and the
+	// first framebuffer frames flow until the pump's per-frame grants take over.
+	// Best-effort, like pumpServerToBrowser's own grants: a non-credit-windowed channel (test fakes)
+	// has nothing to replenish and returns an error that is not a relay failure.
+	_ = tcpChannel.GrantCredit(transport.TCPRelayInitialCredit)
+
 	if _, err := rfb.Frontshake(embedChannel); err != nil {
 		debugLog("browser frontshake failed: %v", err)
 		return fmt.Errorf("relay: browser frontshake: %w", err)
