@@ -53,6 +53,31 @@ var DefaultCouplingPolicy = CouplingPolicy{Capacity: transport.EmbedStreamInitia
 //
 // A non-positive Capacity is treated as 1 (degenerate but never divides
 // by zero); a non-positive requested amount always yields 0.
+// couplingGrant is the tcp-relay grant issued for one server->browser frame just relayed. It
+// always returns at least 1 — the credit that frame consumed — plus any read-ahead the coupling
+// policy allows on top when embed-stream has headroom.
+//
+// Returning 0 here is a deadlock: pumpServerToBrowser grants tcp-relay credit ONLY after a read, so
+// the moment the policy withholds it to 0 (which it does as soon as embed-stream send-credit hits
+// 0 — e.g. a scroll or fullscreen-exit burst the browser is briefly slow to drain) the host's
+// tcp-relay window drains, the next read blocks with no path left to re-grant, and the picture
+// freezes permanently while input keeps working on the other channel. Backpressure toward the VNC
+// server is still enforced by embedCh.Write blocking on embed-stream credit (which pauses this loop,
+// and thus the grants, so the host stops draining the real TCP socket); the read pipe just never
+// loses the credit it needs to resume once the browser catches up.
+//
+// hasCredit is false for a channel with no real credit window (test fakes): nothing to couple
+// against, so grant the plain 1.
+func couplingGrant(remaining int, hasCredit bool, policy CouplingPolicy) int {
+	grant := 1
+	if hasCredit {
+		if extra := policy.Grant(remaining, 1); extra > grant {
+			grant = extra
+		}
+	}
+	return grant
+}
+
 func (p CouplingPolicy) Grant(remaining, requested int) int {
 	if requested <= 0 {
 		return 0

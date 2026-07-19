@@ -243,16 +243,7 @@ func pumpServerToBrowser(tcpCh, embedCh *transport.Channel, policy CouplingPolic
 			}
 
 			remaining, ok := embedCh.SendCreditRemaining()
-			if !ok {
-				// Not backed by a real credit-windowed channel (e.g. a
-				// test fake) — nothing to couple against, so grant
-				// plainly.
-				_ = tcpCh.GrantCredit(1)
-			} else if grant := policy.Grant(remaining, 1); grant > 0 {
-				_ = tcpCh.GrantCredit(grant)
-			}
-			// grant == 0: deliberately withhold — this is the coupling's
-			// backpressure lever reaching the VNC server (design doc §3).
+			_ = tcpCh.GrantCredit(couplingGrant(remaining, ok, policy))
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {

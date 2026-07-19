@@ -75,3 +75,26 @@ func TestDefaultCouplingPolicy_Capacity(t *testing.T) {
 		t.Errorf("DefaultCouplingPolicy.Capacity = %d, want 8 (embed-stream initial credit)", DefaultCouplingPolicy.Capacity)
 	}
 }
+
+// TestCouplingGrant_NeverZero is the frozen-picture regression: the tcp-relay grant issued per
+// relayed frame must always be at least 1, even when embed-stream credit is exhausted (Grant==0) or
+// rounds to 0 in the low-water band. Returning 0 drained the tcp-relay window and deadlocked the
+// server->browser read with no way to re-grant, freezing the image while input still worked.
+func TestCouplingGrant_NeverZero(t *testing.T) {
+	p := CouplingPolicy{Capacity: 8}
+	cases := []struct {
+		remaining int
+		hasCredit bool
+	}{
+		{0, true},   // embed window fully exhausted — Grant returns 0
+		{1, true},   // low-water: Grant rounds 1*1/8 to 0
+		{2, true},   // low-water
+		{8, true},   // ample headroom
+		{0, false},  // not a credit-windowed channel (test fake)
+	}
+	for _, c := range cases {
+		if got := couplingGrant(c.remaining, c.hasCredit, p); got < 1 {
+			t.Errorf("couplingGrant(remaining=%d, hasCredit=%v) = %d, want >= 1 (never starve the read pipe)", c.remaining, c.hasCredit, got)
+		}
+	}
+}
