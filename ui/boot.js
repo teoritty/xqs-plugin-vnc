@@ -193,6 +193,16 @@ async function main() {
     containerEl.classList.add('vnc-read-only');
   }
 
+  // Fit the remote desktop to the panel instead of clipping it at native resolution.
+  //   - resizeSession asks the server to change its desktop size to match the container (crisp,
+  //     native) via the Extended DesktopSize extension. Servers that support it (TigerVNC, x11vnc
+  //     -xrandr, …) resize; the rest silently ignore the request.
+  //   - scaleViewport then scales whatever remains to fit, preserving aspect ratio (letterboxed),
+  //     so the view always fits the window even on servers that cannot resize.
+  // noVNC re-applies both on its own ResizeObserver as the iframe (and thus the panel) resizes.
+  rfb.resizeSession = true;
+  rfb.scaleViewport = true;
+
   rfb.addEventListener('connect', () => {
     hideStatus();
     console.info('[xqs-plugin-vnc] RFB connected.');
