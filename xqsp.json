@@ -1,7 +1,7 @@
 {
   "id": "com.xquakshell.vnc",
   "name": "VNC",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "VNC session client (embed viewer) for xQuakShell.",
   "author": "teoritty",
   "license": "GPL-3.0",
