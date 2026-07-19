@@ -95,9 +95,20 @@ func (s *Session) ReportRelayEnded(ctx context.Context, err error) {
 		return
 	}
 
-	if err != nil {
-		s.updateState(ctx, StateError, err.Error())
+	// A relay that ends after the session was up is a lost connection (network change, VNC server
+	// restart), not a fatal error: try to re-establish it within reconnectWindow before giving up,
+	// keeping the same session so the tab survives. session.disconnect / process teardown set
+	// torndown, which stops the loop. On success a fresh relay is running; it will report its own
+	// end later.
+	if s.reconnect(ctx) {
+		return
 	}
+
+	msg := "connection lost"
+	if err != nil {
+		msg = "connection lost: " + err.Error()
+	}
+	s.updateState(ctx, StateError, msg)
 	s.Teardown(ctx, "relay-ended")
 }
 

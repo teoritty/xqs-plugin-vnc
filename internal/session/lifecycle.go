@@ -171,14 +171,29 @@ func (s *Session) orchestrate(ctx context.Context) {
 	// the VNC server (transport.Channel satisfies net.Conn) — Phase 3d's
 	// relay pump (internal/relay) reads/writes it directly; there is no
 	// separate net.Dial anywhere in this plugin.
+	if err := s.connectAndRelay(ctx); err != nil {
+		s.updateState(ctx, StateError, err.Error())
+		return
+	}
+
+	traceLog("session %s: calling updateState(ready)", s.id)
+	s.updateState(ctx, StateReady, "")
+	traceLog("session %s: orchestrate complete", s.id)
+}
+
+// connectAndRelay opens the tcp-relay and embed-stream channels, registers the embed surface and
+// starts the relay pumps. It returns an error WITHOUT changing session state, so the initial
+// orchestrate and the reconnect loop (reconnect.go) share one connect path and each drives its own
+// state transitions. On success the relay is running in its own goroutine and calls ReportRelayEnded
+// when it ends.
+func (s *Session) connectAndRelay(ctx context.Context) error {
 	host, port := s.HostPort()
 	tcpHint := net.JoinHostPort(host, strconv.Itoa(port))
 	traceLog("session %s: opening tcp-relay channel (hint=%s)", s.id, tcpHint)
 	tcpCh, err := transport.OpenChannel(ctx, s.caller, s.frameWriter, s.registry, transport.PurposeTCPRelay, s.id, tcpHint)
 	if err != nil {
 		traceLog("session %s: tcp-relay channel.open failed: %v", s.id, err)
-		s.updateState(ctx, StateError, "failed to open tcp-relay channel: "+err.Error())
-		return
+		return fmt.Errorf("failed to open tcp-relay channel: %w", err)
 	}
 	traceLog("session %s: tcp-relay channel open", s.id)
 
@@ -187,8 +202,7 @@ func (s *Session) orchestrate(ctx context.Context) {
 	if err != nil {
 		traceLog("session %s: embed-stream channel.open failed: %v", s.id, err)
 		_ = transport.CloseChannel(ctx, s.caller, tcpCh, "setup-failed", "")
-		s.updateState(ctx, StateError, "failed to open embed-stream channel: "+err.Error())
-		return
+		return fmt.Errorf("failed to open embed-stream channel: %w", err)
 	}
 	traceLog("session %s: embed-stream channel open", s.id)
 
@@ -200,8 +214,7 @@ func (s *Session) orchestrate(ctx context.Context) {
 	traceLog("session %s: calling session.registerEmbed", s.id)
 	if _, err := s.registerEmbed(ctx); err != nil {
 		traceLog("session %s: registerEmbed failed: %v", s.id, err)
-		s.updateState(ctx, StateError, "session.registerEmbed failed: "+err.Error())
-		return
+		return fmt.Errorf("session.registerEmbed failed: %w", err)
 	}
 	traceLog("session %s: registerEmbed OK", s.id)
 
@@ -209,15 +222,11 @@ func (s *Session) orchestrate(ctx context.Context) {
 		traceLog("session %s: starting relay", s.id)
 		if err := s.relay.StartRelay(ctx, s, tcpCh, embedCh); err != nil {
 			traceLog("session %s: relay start failed: %v", s.id, err)
-			s.updateState(ctx, StateError, "relay start failed: "+err.Error())
-			return
+			return fmt.Errorf("relay start failed: %w", err)
 		}
 		traceLog("session %s: relay started", s.id)
 	}
-
-	traceLog("session %s: calling updateState(ready)", s.id)
-	s.updateState(ctx, StateReady, "")
-	traceLog("session %s: orchestrate complete", s.id)
+	return nil
 }
 
 // Handler answers the session.* RPC methods (session.connect) and
